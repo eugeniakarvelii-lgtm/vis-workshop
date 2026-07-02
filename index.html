@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Visualization</title>
+
+    <!-- Leaflet CSS -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <!-- D3 -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+      }
+
+      header {
+        padding: 1rem;
+        background: #f5f5f5;
+        border-bottom: 1px solid #ddd;
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        height: calc(100vh - 70px);
+      }
+
+      /* Leaflet map */
+      #map {
+        height: 100%;
+        width: 100%;
+      }
+
+      /* D3 visualization area */
+      #viz {
+        padding: 1rem;
+        overflow: auto;
+      }
+
+      svg {
+        width: 100%;
+        height: 600px;
+        border: 1px solid #ddd;
+      }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <h1>Roger Jeffrey</h1>
+      <p>D3.js + Leaflet starter project</p>
+    </header>
+
+    <main>
+      <div id="map"></div>
+
+      <div id="viz">
+        <svg id="chart"></svg>
+      </div>
+    </main>
+
+    <script>
+      // add commented code for changing color/size/width etc.
+      // attach the leaflet map to the div with id "map"
+      const map = L.map("map").setView([55.9533, -3.1883], 5);
+
+      // add tiles/images to the map
+      L.tileLayer(
+        "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+        {
+          attribution: "&copy; OpenStreetMap contributors",
+        },
+      ).addTo(map);
+
+      // attach d3 to the asvg element where you are going to draw the visualization
+      const svg = d3.select("#chart");
+
+      // give the svg width, height, and margins for the visualization
+      const width = 900;
+      const height = 600;
+      const margin = { top: 30, right: 30, bottom: 60, left: 60 };
+
+      // make the svg responsive to different screen sizes
+      svg.attr("viewBox", `0 0 ${width} ${height}`);
+
+      // load the data
+      d3.json("data/women_doctors_geo.json")
+        .then((data) => {
+          console.log(data);
+
+          // // OPTIONAL ENTRY YEAR FILTER
+          // // Comment out this whole block if you want to disable year-based filtering.
+          // const ENABLE_ENTRY_YEAR_FILTER = true;
+          // const ENTRY_YEAR_MIN = 1910;
+          // const ENTRY_YEAR_MAX = 1950;
+
+          // let filteredData = data;
+          // if (ENABLE_ENTRY_YEAR_FILTER) {
+          //   filteredData = data.filter((d) => {
+          //     const year = Number(d.source_data?.entry_year);
+          //     return (
+          //       Number.isFinite(year) &&
+          //       year >= ENTRY_YEAR_MIN &&
+          //       year <= ENTRY_YEAR_MAX
+          //     );
+          //   });
+          // }
+
+          // MAP
+          // go through every record in the data and add a marker to the map for each birthplace
+          data.forEach((element) => {
+            if (
+              element.source_data?.birthplace?.lat &&
+              element.source_data?.birthplace?.lon
+            ) {
+              L.marker([
+                element.source_data.birthplace.lat,
+                element.source_data.birthplace.lon,
+              ])
+                .addTo(map)
+                .bindPopup(element.name.forename + " " + element.name.surname);
+            }
+          });
+
+          // Timeline
+          // clean up the data. make sure years are considered as numbers and filter out any invalid values
+          const years = data
+            .map((d) => Number(d.source_data?.entry_year))
+            .filter((year) => Number.isFinite(year) && year > 0);
+
+          // grouping of the years and countinrg the number per year
+          const timelineData = d3
+            .rollups(
+              years,
+              (values) => values.length,
+              (year) => year,
+            )
+            .map(([year, count]) => ({ year, count }))
+            .sort((a, b) => a.year - b.year);
+
+          console.log(timelineData);
+          
+
+          // if (timelineData.length === 0) {
+          //   console.warn("No data points after applying entry_year filter.");
+          //   return;
+          // }
+
+          // x axis
+          const x = d3
+            .scaleLinear()
+            .domain(d3.extent(timelineData, (d) => d.year))
+            // .nice()
+            .range([margin.left, width - margin.right]);
+
+          // y axis
+          const y = d3
+            .scaleLinear()
+            .domain([0, d3.max(timelineData, (d) => d.count)])
+            // .nice()
+            .range([height - margin.bottom, margin.top]);
+
+          let test = x(1910);
+          console.log(test);
+
+          // append both axes to the svg
+          svg
+            .append("g")
+            .attr("transform", `translate(0,${height - margin.bottom})`)
+            .call(d3.axisBottom(x).tickFormat(d3.format("d")));
+
+          svg
+            .append("g")
+            .attr("transform", `translate(${margin.left},0)`)
+            .call(d3.axisLeft(y));
+
+          // axis labels
+          svg
+            .append("text")
+            .attr("x", width / 2)
+            .attr("y", height - 15)
+            .attr("text-anchor", "middle")
+            .text("Entry Year");
+
+          svg
+            .append("text")
+            .attr("transform", "rotate(-90)")
+            .attr("x", -height / 2)
+            .attr("y", 20)
+            .attr("text-anchor", "middle")
+            .text("Number of Records");
+
+          // line chart
+          const line = d3
+            .line()
+            .x((d) => x(d.year))
+            .y((d) => y(d.count));
+
+          svg
+            .append("path")
+            .datum(timelineData)
+            .attr("fill", "none")
+            .attr("stroke", "orange")
+            .attr("stroke-width", 2)
+            .attr("d", line);
+
+          svg
+            .selectAll(".point")
+            .data(timelineData)
+            .join("circle")
+            .attr("class", "point")
+            .attr("cx", (d) => x(d.year))
+            .attr("cy", (d) => y(d.count))
+            .attr("r", 3)
+            .attr("fill", "steelblue");
+
+        })
+        .catch((error) => {
+          console.error("Error loading JSON:", error);
+        });
+    </script>
+  </body>
+</html>
